@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.env
+data/chroma/
+.ipynb_checkpoints/
+node_modules/
+.DS_Store
+data/*
+!data/.gitkeep
