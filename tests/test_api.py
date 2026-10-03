@@ -115,6 +115,8 @@ def test_query_retrieval_only_and_debug_prompt(client):
     q = {"question": "What is the capital of France?"}
     only = events(client.post("/query", json={**q, "retrieval_only": True}))
     assert [n for n, _ in only] == ["sources", "done"]
+    both = events(client.post("/query", json={**q, "retrieval_only": True, "debug": True}))
+    assert [n for n, _ in both] == ["sources", "prompt", "done"]  # prompt shown, model not called
     dbg = events(client.post("/query", json={**q, "debug": True}))
     prompt = next(d for n, d in dbg if n == "prompt")
     assert "Eiffel Tower" in prompt["user"] and "[1]" in prompt["user"]
@@ -151,3 +153,13 @@ def test_delete_removes_document_and_its_vectors(client):
     ev = events(client.post("/query", json={"question": "What is the capital of France?"}))
     assert ev[0] == ("sources", [])
     assert client.delete(f"/documents/{doc_id}").status_code == 404
+
+
+@pytest.mark.parametrize("origin,allowed", [
+    ("http://localhost:5180", True),   # this project's React dev server
+    ("http://localhost:5173", True),   # Vite's default port
+    ("http://evil.example", False),
+])
+def test_cors_only_allows_the_dev_server(client, origin, allowed):
+    r = client.options("/config/rag", headers={"Origin": origin, "Access-Control-Request-Method": "PUT"})
+    assert (r.headers.get("access-control-allow-origin") == origin) is allowed

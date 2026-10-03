@@ -1,146 +1,171 @@
-# RAG from scratch
+# Ask your documents (RAG from scratch)
 
-A personal project to understand how Retrieval-Augmented Generation works by building each step by hand in Python. No LangChain: every stage (load, chunk, embed, store, retrieve, prompt, generate) is a small readable file.
-
-See [ROADMAP.md](ROADMAP.md) for the full plan. Status: the Python RAG core and the FastAPI backend work. The React UI is not built yet.
-
-## How it works
+Put documents in, ask questions, get answers with the sources they came from. Built step by step in Python to learn how RAG works: no LangChain, every stage is a small readable file.
 
 ```
-INGEST   file ──► load ──► chunk ──► embed ──► store in Chroma
-ASK      question ──► embed ──► search Chroma ──► drop weak chunks ──► build prompt ──► LLM ──► answer + sources
+your files → cut into chunks → turned into vectors → stored
+your question → find the closest chunks → send them to an AI model → answer + sources
 ```
 
-| Step | File | What it does |
-|---|---|---|
-| Load | `rag/loaders.py` | Reads `.pdf`, `.txt`, `.md` into `Document(text, metadata)` |
-| Chunk | `rag/chunking.py` | Five strategies: `fixed`, `recursive`, `sentence`, `structure`, `semantic` |
-| Embed | `rag/embeddings.py` | `all-MiniLM-L6-v2` (local, 384 numbers per text, unit length so dot product = cosine similarity) |
-| Store | `rag/store.py` | Persistent Chroma DB in `data/chroma/`; chunk IDs are content hashes, so re-ingesting never duplicates |
-| Ingest | `rag/pipeline.py` | `ingest(path, config)` ties the steps together; removes stale chunks when a file changes |
-| Retrieve | `rag/retrieval.py` | Top-k similarity search, drops chunks below `min_score` |
-| Prompt + answer | `rag/generation.py` | Numbers the chunks `[1] [2]...`, calls the LLM, returns answer + sources |
-| LLM providers | `rag/llm.py` | `ollama` (local), `claude` (Anthropic API), `echo` (offline test, no model) |
-| Settings | `rag/config.py`, `config.toml` | Everything tunable lives in `config.toml` |
-| CLI | `rag/cli.py` | `ingest` and `ask` commands, with `[step]` progress prints |
+Everything runs on your own machine. The default AI model is local (Ollama), so it is free and nothing leaves your computer.
 
-## Setup
+---
 
-Requirements: macOS/Linux, [uv](https://docs.astral.sh/uv/), and [Ollama](https://ollama.com) for the default local model.
+## 1. One-time setup
+
+You need a Mac with [Homebrew](https://brew.sh). Run these from the project folder.
 
 ```bash
-brew install uv ollama
-uv sync                       # creates .venv with Python 3.12 and installs dependencies
-cp .env.example .env          # only needed if you want to use Claude
-ollama serve                  # leave running in its own terminal tab
-ollama pull llama3.2          # about 2 GB download
+brew install uv ollama          # tools: Python manager and local AI
+node --version                  # needs Node.js 20 or newer; if missing, run: brew install node
+uv sync                         # installs the Python packages (about 1 minute)
+cd frontend && npm install && cd ..   # installs the web page packages
+ollama pull llama3.2            # downloads the AI model (about 2 GB, once)
 ```
 
-Put documents (PDF, txt, md) in `data/`. The folder's contents are gitignored, so personal files such as a resume are not committed.
+That is all. You never need to "activate" anything; `uv run` handles the Python environment.
 
-## Usage
+---
 
-Run these from the project folder. `uv run` uses the project's environment, so there is nothing to activate.
+## 2. Start it (every time)
 
+Open **three terminal tabs** in the project folder and run one command in each:
+
+**Tab 1: the AI model**
 ```bash
-# 1. Index your documents (safe to re-run)
-uv run python -m rag.cli ingest
-
-# 2. Ask a question (uses the provider set in config.toml, Ollama by default)
-uv run python -m rag.cli ask "What programming languages and tools does he know?"
-
-# See the exact prompt the model received
-uv run python -m rag.cli ask "Where did he study?" --show-prompt
-
-# Retrieval only, no LLM: shows which chunks match and their scores
-uv run python -m rag.cli ask "What did he build at BrowserStack?" --retrieval-only
-
-# Switch provider for one question
-uv run python -m rag.cli ask "Where did he study?" --provider claude   # needs ANTHROPIC_API_KEY in .env
-uv run python -m rag.cli ask "Where did he study?" --provider echo     # no model, just tests the wiring
+ollama serve
 ```
 
-Questions that match nothing well enough (for example "How do I bake sourdough bread?") get an "I don't know" without calling the LLM at all.
-
-## Backend API
-
-A FastAPI app (`backend/app/`) stores settings in SQLite (`data/app.db`) and exposes the RAG core over HTTP, so the React UI can configure and query it. Settings are seeded from `config.toml` the first time, then live in the database.
-
+**Tab 2: the backend**
 ```bash
-uv run uvicorn backend.app.main:create_app --factory --reload   # run from the project root
+uv run uvicorn backend.app.main:create_app --factory --reload
 ```
 
-Open http://127.0.0.1:8000/docs for interactive docs.
+**Tab 3: the web page**
+```bash
+cd frontend && npm run dev
+```
 
-| Endpoint | Purpose |
+Then open **http://localhost:5180** in your browser. To stop anything, press `Ctrl+C` in its tab.
+
+> If `ollama serve` says the address is already in use, Ollama is already running. That is fine, skip tab 1.
+
+---
+
+## 3. Simple walkthrough
+
+**Step 1: add a document.**
+Open **http://localhost:5180/config** (the *Settings* link at the top). Click **Add documents** and pick a PDF, `.txt` or `.md` file. The status goes *Waiting → Indexing → Ready*. That means it has been cut up and stored.
+
+**Step 2: ask a question.**
+Click **Ask** at the top (**http://localhost:5180**). Type a question about your document and press **Enter**. The answer streams in, and below it you see the **sources**: the pieces of your document the answer is based on, each with a score (higher means a closer match).
+
+**Step 3: look inside (the fun part).**
+Tick **Show prompt** and ask again. Open "Prompt sent to the model" to see exactly what the AI was given. Tick **Retrieval only** to see what the search finds without calling the AI at all.
+
+**Step 4: tune it.**
+Back in **Settings** you can change:
+- **Chunking**: how documents are cut up (strategy, chunk size, overlap). The coloured ruler shows what a change does. After changing these, click the **Re-index** button that appears.
+- **Retrieval**: how many chunks go to the AI, and the minimum score a chunk needs.
+- **Model**: Ollama, Claude, or Echo (no AI, for testing), plus the instructions given to the model.
+
+Ask the same question again after each change and compare the answers. That is how you learn what each setting does.
+
+Notes: the chat is not saved (refresh clears it), and every question is answered on its own, so follow-up questions like "and what about him?" will not work.
+
+---
+
+## 4. All commands
+
+### Run the app
+| What | Command |
 |---|---|
-| `GET/PUT /config/rag` | Chunking strategy, chunk size, overlap, top_k, min_score. Returns `needs_reindex` when a change affects stored vectors |
-| `GET/PUT /config/llm` | Provider (`ollama`/`claude`/`echo`), model settings, system prompt |
-| `POST /documents` | Upload a pdf/txt/md (max 20 MB); indexed in the background |
-| `GET /documents` | List documents with status `pending`, `indexing`, `ready` or `failed` |
-| `DELETE /documents/{id}` | Remove the document and its vectors |
-| `POST /reindex` | Re-ingest all documents with the current settings |
-| `POST /query` | Streams Server-Sent Events: `sources`, then `token`s (or `error`), then `done`. Flags: `retrieval_only`, `debug` (also streams the exact prompt) |
+| Start the AI model | `ollama serve` |
+| Start the backend (http://127.0.0.1:8000) | `uv run uvicorn backend.app.main:create_app --factory --reload` |
+| Start the web page (http://localhost:5180) | `cd frontend && npm run dev` |
+| API test page (try endpoints in the browser) | open http://127.0.0.1:8000/docs |
 
-```bash
-curl -N -X POST localhost:8000/query -H 'content-type: application/json' \
-  -d '{"question": "Where did he study?"}'
-```
+### Use it from the terminal (no web page needed)
+Put files in the `data/` folder first.
 
-Notes: API keys are never accepted or returned by the API; they stay in `.env` on the server. CORS allows only the Vite dev server (`localhost:5173`). The API has no authentication, so run it locally only. Documents indexed with the CLI are searched too, but only uploaded ones appear in `GET /documents`.
-
-Run the tests (they use an in-memory DB, a temp folder and a throwaway Chroma collection, and no real LLM):
-
-```bash
-uv run pytest tests -q
-```
-
-## Configuration
-
-Edit `config.toml`; no code changes needed. (The backend reads it only to seed its first settings.)
-
-| Setting | Meaning |
+| What | Command |
 |---|---|
-| `ingest.strategy` | `fixed`, `recursive`, `sentence`, `structure`, `semantic` |
-| `ingest.chunk_tokens` / `overlap` | Chunk size in tokens; overlap is used only by `fixed` |
-| `retrieval.top_k` | How many chunks are sent to the LLM |
-| `retrieval.min_score` | Chunks scoring below this are dropped. 0.15 works for the resume demo: answerable questions scored 0.22 or higher, off-topic ones 0.09 or lower |
-| `llm.provider` | `ollama`, `claude` or `echo` |
-| `llm.claude.model` / `effort` | Claude model and effort level. Set `effort = ""` for models that reject it, such as Haiku 4.5 |
-| `llm.ollama.model` / `host` | Ollama model and server address |
+| Index everything in `data/` | `uv run python -m rag.cli ingest` |
+| Index one file | `uv run python -m rag.cli ingest data/notes.pdf` |
+| Ask a question | `uv run python -m rag.cli ask "Where did he study?"` |
+| Show the prompt the AI received | `uv run python -m rag.cli ask "Where did he study?" --show-prompt` |
+| Search only, no AI | `uv run python -m rag.cli ask "Where did he study?" --retrieval-only` |
+| Use Claude for one question | `uv run python -m rag.cli ask "Where did he study?" --provider claude` |
+| Test without any AI model | `uv run python -m rag.cli ask "Where did he study?" --provider echo` |
 
-After changing any `ingest.*` setting, run `ingest` again. Changing the embedding model would need a full re-index, because vectors from different models can't be compared (not yet automated).
-
-## Experiments
-
-Each concept has a script in `experiments/` that prints intermediate values. Run one with `uv run python experiments/NN_name.py`.
-
-| Script | Shows |
+### Models
+| What | Command |
 |---|---|
-| `01_tokens.py` | Characters vs tokens, how words split into tokens |
-| `02_chunking.py` | All five chunking strategies side by side on one document |
-| `03_embeddings.py` | Cosine similarity by hand; which chunk each strategy retrieves |
-| `04_meaning.py` | Embeddings capture meaning from context, not a dictionary |
-| `05_model_peek.py` | Inside the embedding model: size, 256-token input limit, tokenizer |
-| `06_score_walkthrough.py` | How a similarity score is computed, step by step |
-| `07_store.py` | Chroma persistence and stable IDs (run it twice) |
-| `08_pipeline.py` | `ingest()` behaviour: unchanged, stale cleanup, chunk-size effects |
-| `08_filter.py` | Metadata filtering with `where` |
-| `09_retrieve_prompt.py` | Score thresholds, filters, and the exact prompt sent to the LLM |
-| `10_llm_config.py` | Provider switching from config, and the failure messages |
+| List downloaded models | `ollama list` |
+| Download another model | `ollama pull <name>` (then set the name in Settings) |
+| Stop the AI model | `pkill ollama` |
 
-## What I learned / things to know
+### Learn by running experiments
+Each script prints what happens at one step. Run any of them with `uv run python experiments/<file>`:
 
-- **Chunking decides what retrieval can find.** On the sample resume, `structure` chunking (split at headings) found the right chunk for all 3 test questions. `sentence` found none, and `semantic` made many tiny, context-free chunks. This is one short document and three questions, so treat it as an illustration, not a benchmark.
-- **A high score is not a correct answer.** A 5-token chunk ("Engineering Intern") outscored the real education chunk. Compare scores relative to each other, and use top-k rather than trusting the top result alone.
-- **Embeddings capture topic, not logic.** "I do not love cooking pasta" scored higher against "I love cooking pasta" than a true paraphrase did.
-- **The embedding model truncates input at 256 tokens.** Chunks are counted with `tiktoken`, which differs slightly from the model's own tokenizer, so keep chunks well under 256.
-- **Small local models are inconsistent.** `llama3.2` (3B) answered correctly but sometimes omitted items, ignored the "cite [1]" instruction, and changed its wording between runs on the same question. Retrieval is the same each time; the variation comes from the model. Try a larger model or Claude for steadier answers.
-- **Retrieved text goes into the prompt as-is.** A document containing instructions could try to steer the model (prompt injection). Fine for your own files; be careful with documents you do not control.
+| File | Shows |
+|---|---|
+| `01_tokens.py` | How text is split into tokens |
+| `02_chunking.py` | All five ways of cutting a document, side by side |
+| `03_embeddings.py` | How "similar meaning" becomes a number |
+| `06_score_walkthrough.py` | How one match score is calculated, step by step |
+| `07_store.py` | The vector database (run it twice) |
+| `08_pipeline.py` | Re-indexing behaviour |
+| `10_llm_config.py` | Switching AI models from config |
 
-## Not done yet
+(The others, `00`, `04`, `05`, `08_filter`, `09`, are smaller demos. See [docs/details.md](docs/details.md) for the full list.)
 
-- Eval set (hand-written questions with known right chunks) to measure retrieval instead of eyeballing it
-- Inline citations from small models, reranking, hybrid search
-- React UI (Phases 4 and 5 in the roadmap)
-- Automatic re-index when the embedding model changes
+### Check that everything works
+| What | Command |
+|---|---|
+| Backend tests | `uv run pytest tests -q` |
+| Web page type-check and build | `cd frontend && npm run build` |
+
+---
+
+## 5. Using Claude instead of Ollama (optional)
+
+1. Get an API key from Anthropic.
+2. Put it in the `.env` file in the project folder: `ANTHROPIC_API_KEY=your-key-here`
+3. Restart the backend (tab 2).
+4. In **Settings → Model**, choose **Claude**, and click **Save changes**.
+
+The key stays on your computer in `.env`. The web page never sees it, and `.env` is not uploaded to git.
+
+---
+
+## 6. If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| Web page says **"The API is not running"** | Start the backend (tab 2). The page reconnects by itself. |
+| Answer says **"Cannot reach Ollama"** | Start `ollama serve` (tab 1). |
+| Answer says **"model 'llama3.2' not found"** | Run `ollama pull llama3.2`. |
+| Answer says **"I don't know: nothing in the indexed documents…"** | No chunk matched well enough. Lower **Minimum match score** in Settings, rephrase the question, or check a document is *Ready*. |
+| **"No Anthropic credentials"** | Add `ANTHROPIC_API_KEY` to `.env` (section 5), or switch back to Ollama. |
+| `npm run dev` says **port 5180 is in use** | Another copy is running. Stop it, or change the port in `frontend/vite.config.ts` (and add it to the allowed list in `backend/app/main.py`). |
+| Answers are wrong or incomplete | Usually the small local model. Try a larger Ollama model, or Claude. Use **Show prompt** to check the right text reached it. |
+| Changed chunk settings but answers did not change | Click **Re-index** on the Settings page. |
+
+---
+
+## Where things are
+
+| Folder / file | What it is |
+|---|---|
+| `rag/` | The RAG code (load, chunk, embed, store, search, answer). **This is the learning part.** |
+| `backend/` | The API the web page talks to |
+| `frontend/` | The web page (Ask and Settings) |
+| `config.toml` | Default settings, copied into the database the first time the backend starts |
+| `data/` | Your documents and the stored vectors (not uploaded to git) |
+| `experiments/` | Small scripts that print what each step does |
+| `tests/` | Backend tests |
+| `docs/details.md` | The long technical reference |
+| `ROADMAP.md` | The original plan |
+
+Want the deeper explanations (how each chunking strategy behaves, what the scores mean, what I learned along the way)? Read [docs/details.md](docs/details.md).

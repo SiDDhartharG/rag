@@ -54,7 +54,8 @@ def create_app(
     app = FastAPI(title="RAG API")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # the Vite dev server
+        # The React dev server. 5180 is this project's own port (see frontend/vite.config.ts); 5173 is Vite's default.
+        allow_origins=[f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 5180)],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -222,15 +223,16 @@ def create_app(
             yield sse("sources", sources)
             if not hits:  # nothing relevant: skip the LLM, same rule as the CLI
                 yield sse("token", NO_ANSWER)
-            elif not req.retrieval_only:
+            else:
                 system, user = build_prompt(req.question, hits, cfg.llm.system_prompt)
-                if req.debug:
+                if req.debug:  # also in retrieval-only mode: shows what WOULD be sent
                     yield sse("prompt", {"system": system, "user": user})
-                try:
-                    for piece in get_llm(cfg.llm).stream(system, user):
-                        yield sse("token", piece)
-                except RuntimeError as e:  # e.g. Ollama not running, bad API key
-                    yield sse("error", str(e))
+                if not req.retrieval_only:
+                    try:
+                        for piece in get_llm(cfg.llm).stream(system, user):
+                            yield sse("token", piece)
+                    except RuntimeError as e:  # e.g. Ollama not running, bad API key
+                        yield sse("error", str(e))
             yield sse("done", {})
 
         return StreamingResponse(events(), media_type="text/event-stream")
