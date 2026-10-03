@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pypdf>=6.19.0",
     "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
     "sentence-transformers>=6.1.0",
     "sqlmodel>=0.0.47",
     "tiktoken>=0.14.0",

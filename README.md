@@ -2,7 +2,7 @@
 
 A personal project to understand how Retrieval-Augmented Generation works by building each step by hand in Python. No LangChain: every stage (load, chunk, embed, store, retrieve, prompt, generate) is a small readable file.
 
-See [ROADMAP.md](ROADMAP.md) for the full plan. Status: the Python RAG core works end to end. The backend (FastAPI) and the React UI are not built yet.
+See [ROADMAP.md](ROADMAP.md) for the full plan. Status: the Python RAG core and the FastAPI backend work. The React UI is not built yet.
 
 ## How it works
 
@@ -62,9 +62,42 @@ uv run python -m rag.cli ask "Where did he study?" --provider echo     # no mode
 
 Questions that match nothing well enough (for example "How do I bake sourdough bread?") get an "I don't know" without calling the LLM at all.
 
+## Backend API
+
+A FastAPI app (`backend/app/`) stores settings in SQLite (`data/app.db`) and exposes the RAG core over HTTP, so the React UI can configure and query it. Settings are seeded from `config.toml` the first time, then live in the database.
+
+```bash
+uv run uvicorn backend.app.main:create_app --factory --reload   # run from the project root
+```
+
+Open http://127.0.0.1:8000/docs for interactive docs.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET/PUT /config/rag` | Chunking strategy, chunk size, overlap, top_k, min_score. Returns `needs_reindex` when a change affects stored vectors |
+| `GET/PUT /config/llm` | Provider (`ollama`/`claude`/`echo`), model settings, system prompt |
+| `POST /documents` | Upload a pdf/txt/md (max 20 MB); indexed in the background |
+| `GET /documents` | List documents with status `pending`, `indexing`, `ready` or `failed` |
+| `DELETE /documents/{id}` | Remove the document and its vectors |
+| `POST /reindex` | Re-ingest all documents with the current settings |
+| `POST /query` | Streams Server-Sent Events: `sources`, then `token`s (or `error`), then `done`. Flags: `retrieval_only`, `debug` (also streams the exact prompt) |
+
+```bash
+curl -N -X POST localhost:8000/query -H 'content-type: application/json' \
+  -d '{"question": "Where did he study?"}'
+```
+
+Notes: API keys are never accepted or returned by the API; they stay in `.env` on the server. CORS allows only the Vite dev server (`localhost:5173`). The API has no authentication, so run it locally only. Documents indexed with the CLI are searched too, but only uploaded ones appear in `GET /documents`.
+
+Run the tests (they use an in-memory DB, a temp folder and a throwaway Chroma collection, and no real LLM):
+
+```bash
+uv run pytest tests -q
+```
+
 ## Configuration
 
-Edit `config.toml`; no code changes needed.
+Edit `config.toml`; no code changes needed. (The backend reads it only to seed its first settings.)
 
 | Setting | Meaning |
 |---|---|
@@ -109,5 +142,5 @@ Each concept has a script in `experiments/` that prints intermediate values. Run
 
 - Eval set (hand-written questions with known right chunks) to measure retrieval instead of eyeballing it
 - Inline citations from small models, reranking, hybrid search
-- FastAPI backend and React UI (Phases 3 to 5 in the roadmap)
+- React UI (Phases 4 and 5 in the roadmap)
 - Automatic re-index when the embedding model changes
