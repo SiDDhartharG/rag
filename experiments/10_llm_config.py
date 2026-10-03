@@ -39,7 +39,7 @@ for provider in ("claude", "ollama"):
         print(f"  {provider}: {e}")
 
 print("\n" + "=" * 70 + "\n5. Does the installed SDK accept the params we send to Claude?\n" + "=" * 70)
-params = inspect.signature(anthropic.Anthropic.messages.__get__ if False else anthropic.resources.messages.Messages.stream).parameters
+params = inspect.signature(anthropic.resources.messages.Messages.stream).parameters
 print("  anthropic", anthropic.__version__, "| stream() accepts output_config:", "output_config" in params,
       "| system:", "system" in params)
 

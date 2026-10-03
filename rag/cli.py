@@ -53,10 +53,11 @@ def main() -> None:
         sys.exit(f"Error: {e}")
     if not result.sources:
         print(result.text)
+        return
     print("\n\nSources:")
     for i, h in enumerate(result.sources, 1):
         print(f"  [{i}] score={h['score']:.2f} {h['metadata']['source']}#{h['metadata']['chunk_index']}")
-    if args.show_prompt and result.sources:
+    if args.show_prompt:
         print(f"\n----- SYSTEM -----\n{result.system}\n\n----- USER -----\n{result.user}")
 
 

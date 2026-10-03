@@ -19,7 +19,7 @@ class RetrievalConfig:
 class ClaudeConfig:
     model: str = "claude-opus-5-5"
     max_tokens: int = 2048
-    effort: str = "low"
+    effort: str = "low"  # "" to omit (needed for models that do not support effort, e.g. Haiku 4.5)
 
 
 @dataclass
@@ -31,7 +31,7 @@ class OllamaConfig:
 
 @dataclass
 class LLMConfig:
-    provider: str = "claude"
+    provider: str = "ollama"
     system_prompt: str = "Answer using only the numbered context. Cite passages like [1]."
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)

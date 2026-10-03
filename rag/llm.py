@@ -5,6 +5,8 @@ import urllib.request
 from collections.abc import Iterator
 from typing import Protocol
 
+import anthropic
+
 from rag.config import LLMConfig
 
 
@@ -17,21 +19,27 @@ class ClaudeLLM:
     def __init__(self, cfg):
         if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
             raise RuntimeError("No Anthropic credentials: put ANTHROPIC_API_KEY=... in .env (or use provider = 'ollama')")
-        import anthropic
-
         self.cfg = cfg
         self.client = anthropic.Anthropic()
 
     def stream(self, system: str, user: str) -> Iterator[str]:
-        with self.client.messages.stream(
-            model=self.cfg.model,
-            max_tokens=self.cfg.max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_config={"effort": self.cfg.effort},
-        ) as stream:
-            yield from stream.text_stream
-            final = stream.get_final_message()
+        extra = {"output_config": {"effort": self.cfg.effort}} if self.cfg.effort else {}  # not every model accepts effort
+        try:
+            with self.client.messages.stream(
+                model=self.cfg.model,
+                max_tokens=self.cfg.max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                **extra,
+            ) as stream:
+                yield from stream.text_stream
+                final = stream.get_final_message()
+        except anthropic.AuthenticationError as e:
+            raise RuntimeError("Anthropic rejected the API key: check ANTHROPIC_API_KEY in .env") from e
+        except anthropic.APIStatusError as e:
+            raise RuntimeError(f"Anthropic API error {e.status_code}: {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            raise RuntimeError(f"Cannot reach the Anthropic API: {e}") from e
         if final.stop_reason == "refusal":
             yield "\n[The model declined to answer this request.]"
         elif final.stop_reason == "max_tokens":
@@ -61,6 +69,10 @@ class OllamaLLM:
                     yield chunk.get("message", {}).get("content", "")
                     if chunk.get("done"):
                         return
+        except urllib.error.HTTPError as e:  # server reachable, but it refused the request
+            detail = json.loads(e.read() or b"{}").get("error", e.reason)
+            hint = f" (try: ollama pull {self.cfg.model})" if e.code == 404 else ""
+            raise RuntimeError(f"Ollama returned {e.code}: {detail}{hint}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(
                 f"Cannot reach Ollama at {self.cfg.host} ({e.reason}). Start it with `ollama serve` "
