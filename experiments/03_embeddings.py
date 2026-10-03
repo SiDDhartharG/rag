@@ -63,5 +63,5 @@ for q in questions:
     for name, chunks in strategies.items():
         scores = chunk_vecs[name] @ qv  # one dot product per chunk
         best = int(np.argmax(scores))
-        preview = chunks[best][:70].replace("\n", " ")
+        preview = chunks[best] 
         print(f"  {name:10} best score={scores[best]:.2f}  chunk {best:>2}: {preview!r}")
