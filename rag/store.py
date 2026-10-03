@@ -29,8 +29,9 @@ def add_chunks(collection, chunks: list[str], source: str) -> None:
     )
 
 
-def search(collection, query: str, k: int = 3) -> list[dict]:
-    res = collection.query(query_embeddings=embed([query]).tolist(), n_results=k)
+def search(collection, query: str, k: int = 3, where: dict | None = None) -> list[dict]:
+    """`where` is a metadata filter, e.g. {"source": "a.pdf"}: only matching chunks are ranked."""
+    res = collection.query(query_embeddings=embed([query]).tolist(), n_results=k, where=where)
     return [
         {"score": 1 - dist, "text": doc, "metadata": meta}
         for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0])
